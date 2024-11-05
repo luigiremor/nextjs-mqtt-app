@@ -1,13 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   BarChart as BarChartIcon,
   Thermometer,
   TrendingUp,
   Menu,
+  Power,
+  Lightbulb,
+  Fan,
+  Snowflake,
 } from "lucide-react";
-import { Area, AreaChart } from "recharts";
+import { Area, AreaChart, XAxis } from "recharts";
 
 import {
   Card,
@@ -16,10 +20,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { ChartConfig, ChartContainer } from "@/components/ui/chart";
-import { Button } from "@/components/ui/button";
+import {
+  ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { useWebSocket } from "@/services/websocketService";
+import Link from "next/link";
+import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
 
 const chartConfig = {
   temperature: {
@@ -32,60 +45,143 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
+const relayToName = {
+  relay1: "Heater",
+  relay2: "Freezer",
+  relay3: "Light",
+  relay4: "Fan",
+};
+
+const relayToIcon = {
+  relay1: <Thermometer className="h-4 w-4 text-muted-foreground" />,
+  relay2: <Snowflake className="h-4 w-4 text-muted-foreground" />,
+  relay3: <Lightbulb className="h-4 w-4 text-muted-foreground" />,
+  relay4: <Fan className="h-4 w-4 text-muted-foreground" />,
+};
+
 export default function Dashboard() {
   const [temperature, setTemperature] = useState(25);
   const [humidity, setHumidity] = useState(50);
 
   const [chartData, setChartData] = useState<
-    Array<{ time: string; temperature: number; humidity: number }>
+    Array<{
+      id: number;
+      timestamp: string;
+      temperature: number;
+      humidity: number;
+    }>
   >([]);
 
+  const [relayStatus, setRelayStatus] = useState({
+    relay1: false,
+    relay2: false,
+    relay3: false,
+    relay4: false,
+  });
+
   useEffect(() => {
-    const interval = setInterval(() => {
-      // Simulate data updates
-      const newTemp = Math.max(
-        10,
-        Math.min(40, temperature + (Math.random() - 0.5) * 2)
-      );
-      setTemperature(newTemp);
-      setHumidity((prev) =>
-        Math.max(0, Math.min(100, prev + (Math.random() - 0.5) * 5))
-      );
+    const fetchRelayStatus = async () => {
+      try {
+        const response = await fetch("http://localhost:3000/relay/status");
 
-      setChartData((prev) =>
-        [
-          ...prev,
-          {
-            time: new Date().toLocaleTimeString(),
-            temperature: Number(newTemp.toFixed(1)),
-            humidity: Number(humidity.toFixed(1)),
-          },
-        ].slice(-6)
-      );
-    }, 2000);
+        const data = await response.json();
 
-    return () => clearInterval(interval);
-  }, [temperature, humidity]);
+        console.log("data", data);
+        setRelayStatus(data);
+      } catch (error) {
+        console.error("Error fetching relay status:", error);
+      }
+    };
+
+    fetchRelayStatus();
+  }, []);
+
+  const handleWebSocketMessage = useCallback((data: unknown) => {
+    console.log("Received sensor data:", data);
+    const sensorData = data as {
+      id: number;
+      temperature: number;
+      humidity: number;
+      timestamp: string;
+    }[];
+
+    sensorData.reverse();
+
+    // Atualiza valores atuais
+    const latestReading = sensorData[0];
+    setTemperature(latestReading.temperature);
+    setHumidity(latestReading.humidity);
+
+    // Atualiza dados do gráfico
+    setChartData((prev) => {
+      const newData = [...prev, ...sensorData];
+      // Mantém apenas os últimos N registros para o gráfico
+      return newData.slice(-15); // ou outro número desejado
+    });
+  }, []);
+
+  useWebSocket("http://localhost:3000/sensors", handleWebSocketMessage);
+
+  const updateRelays = async (updatedRelayStatus: {
+    relay1: boolean;
+    relay2: boolean;
+    relay3: boolean;
+    relay4: boolean;
+  }) => {
+    try {
+      console.log("updatedRelayStatus", updatedRelayStatus);
+
+      const response = await fetch("http://localhost:3000/relay/update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json", // Add this line
+        },
+        body: JSON.stringify(updatedRelayStatus),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      setRelayStatus(updatedRelayStatus);
+    } catch (error) {
+      console.error("Error updating relays:", error);
+    }
+  };
+
+  const handleRelayToggle = (relay: keyof typeof relayStatus) => {
+    // Atualiza o estado visual normalmente
+    setRelayStatus(prev => ({
+      ...prev,
+      [relay]: !prev[relay]
+    }));
+
+    // Mas envia para o backend sempre com apenas o relay alterado como true
+    const backendStatus = {
+      relay1: false,
+      relay2: false,
+      relay3: false,
+      relay4: false,
+      [relay]: true
+    };
+
+    console.log("backendStatus", backendStatus);
+    updateRelays(backendStatus);
+  };
 
   const Sidebar = () => (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-6 text-foreground">IOT Dashboard</h1>
       <nav className="space-y-2">
-        <Button variant="ghost" className="w-full justify-start">
+        <Link
+          href="/"
+          className={cn(
+            buttonVariants({ variant: "ghost" }),
+            "w-full justify-start"
+          )}
+        >
           Dashboard
-        </Button>
-        <Button
-          variant="ghost"
-          className="w-full justify-start text-muted-foreground"
-        >
-          Devices
-        </Button>
-        <Button
-          variant="ghost"
-          className="w-full justify-start text-muted-foreground"
-        >
-          Settings
-        </Button>
+        </Link>
       </nav>
     </div>
   );
@@ -121,7 +217,7 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold mb-2">
-                  {temperature.toFixed(1)}°C
+                  {temperature?.toFixed(1)}°C
                 </div>
                 <ChartContainer config={chartConfig}>
                   <AreaChart
@@ -129,6 +225,7 @@ export default function Dashboard() {
                     margin={{ left: 0, right: 0, top: 0, bottom: 0 }}
                     height={150}
                   >
+                    <XAxis dataKey="timestamp" />
                     <Area
                       dataKey="temperature"
                       type="natural"
@@ -136,6 +233,7 @@ export default function Dashboard() {
                       fillOpacity={0.4}
                       stroke="var(--color-temperature)"
                     />
+                    <ChartTooltip content={<ChartTooltipContent />} />
                   </AreaChart>
                 </ChartContainer>
               </CardContent>
@@ -143,7 +241,7 @@ export default function Dashboard() {
                 <div className="flex w-full items-start text-sm">
                   <div className="grid gap-2">
                     <div className="flex items-center gap-2 font-medium leading-none">
-                      Current temperature: {temperature.toFixed(1)}°C
+                      Current temperature: {temperature?.toFixed(1)}°C
                       <TrendingUp className="h-4 w-4" />
                     </div>
                     <div className="flex items-center gap-2 leading-none text-muted-foreground">
@@ -160,7 +258,7 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold mb-2">
-                  {humidity.toFixed(1)}%
+                  {humidity?.toFixed(1)}%
                 </div>
                 <ChartContainer config={chartConfig}>
                   <AreaChart
@@ -175,6 +273,7 @@ export default function Dashboard() {
                       fillOpacity={0.4}
                       stroke="var(--color-humidity)"
                     />
+                    <ChartTooltip content={<ChartTooltipContent />} />
                   </AreaChart>
                 </ChartContainer>
               </CardContent>
@@ -182,7 +281,7 @@ export default function Dashboard() {
                 <div className="flex w-full items-start text-sm">
                   <div className="grid gap-2">
                     <div className="flex items-center gap-2 font-medium leading-none">
-                      Current humidity: {humidity.toFixed(1)}%
+                      Current humidity: {humidity?.toFixed(1)}%
                       <TrendingUp className="h-4 w-4" />
                     </div>
                     <div className="flex items-center gap-2 leading-none text-muted-foreground">
@@ -193,6 +292,35 @@ export default function Dashboard() {
               </CardFooter>
             </Card>
           </div>
+          <Card className="col-span-2 sm:col-span-1">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle>Control Center</CardTitle>
+              <Power className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {Object.entries(relayStatus).map(([relay, status]) => (
+                  <div
+                    key={relay}
+                    className="flex items-center justify-between rounded-lg bg-muted/50 p-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      {relayToIcon[relay as keyof typeof relayToIcon]}
+                      <span className="text-sm font-medium">
+                        {relayToName[relay as keyof typeof relayToName]}
+                      </span>
+                    </div>
+                    <Switch
+                      checked={!status}
+                      onCheckedChange={() =>
+                        handleRelayToggle(relay as keyof typeof relayStatus)
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
         </ScrollArea>
       </main>
     </div>
