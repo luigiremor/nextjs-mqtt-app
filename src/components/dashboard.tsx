@@ -151,9 +151,9 @@ export default function Dashboard() {
 
   const handleRelayToggle = (relay: keyof typeof relayStatus) => {
     // Atualiza o estado visual normalmente
-    setRelayStatus(prev => ({
+    setRelayStatus((prev) => ({
       ...prev,
-      [relay]: !prev[relay]
+      [relay]: !prev[relay],
     }));
 
     // Mas envia para o backend sempre com apenas o relay alterado como true
@@ -162,7 +162,7 @@ export default function Dashboard() {
       relay2: false,
       relay3: false,
       relay4: false,
-      [relay]: true
+      [relay]: true,
     };
 
     console.log("backendStatus", backendStatus);
