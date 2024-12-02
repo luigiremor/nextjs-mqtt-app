@@ -33,6 +33,7 @@ import { useWebSocket } from "@/services/websocketService";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
+import { ENV } from "@/config/env-manager";
 
 const chartConfig = {
   temperature: {
@@ -82,7 +83,7 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchRelayStatus = async () => {
       try {
-        const response = await fetch("http://localhost:3000/relay/status");
+        const response = await fetch(ENV.BACKEND_URL + "/relay/status");
 
         const data = await response.json();
 
@@ -120,7 +121,7 @@ export default function Dashboard() {
     });
   }, []);
 
-  useWebSocket("http://localhost:3000/sensors", handleWebSocketMessage);
+  useWebSocket(ENV.BACKEND_URL + "/sensors", handleWebSocketMessage);
 
   const updateRelays = async (updatedRelayStatus: {
     relay1: boolean;
@@ -131,7 +132,7 @@ export default function Dashboard() {
     try {
       console.log("updatedRelayStatus", updatedRelayStatus);
 
-      const response = await fetch("http://localhost:3000/relay/update", {
+      const response = await fetch(ENV.BACKEND_URL + "/relay/update", {
         method: "POST",
         headers: {
           "Content-Type": "application/json", // Add this line
@@ -156,13 +157,11 @@ export default function Dashboard() {
       [relay]: !prev[relay],
     }));
 
-    // Mas envia para o backend sempre com apenas o relay alterado como true
+    console.log("relay", relayStatus);
+
     const backendStatus = {
-      relay1: false,
-      relay2: false,
-      relay3: false,
-      relay4: false,
-      [relay]: true,
+      ...relayStatus,
+      [relay]: !relayStatus[relay],
     };
 
     console.log("backendStatus", backendStatus);
@@ -312,9 +311,10 @@ export default function Dashboard() {
                     </div>
                     <Switch
                       checked={!status}
-                      onCheckedChange={() =>
-                        handleRelayToggle(relay as keyof typeof relayStatus)
-                      }
+                      onCheckedChange={() => {
+                        console.log("relay sent", relay);
+                        handleRelayToggle(relay as keyof typeof relayStatus);
+                      }}
                     />
                   </div>
                 ))}
